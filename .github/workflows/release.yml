@@ -59,7 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: your-org/ci-cd-components/.github/actions/deploy@main
+      - uses: BristolAI-com/CI-Components/.github/actions/deploy@main
         with:
           environment: prd
           app_name: ${{ inputs.app_name }}

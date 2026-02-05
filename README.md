@@ -19,7 +19,7 @@ on:
 
 jobs:
   ci:
-    uses: your-org/ci-cd-components/.github/workflows/ci.yml@main
+    uses: BristolAI-com/CI-Components/.github/workflows/ci.yml@main
     secrets: inherit
     with:
       app_name: my-app
@@ -37,7 +37,7 @@ on:
 
 jobs:
   release:
-    uses: your-org/ci-cd-components/.github/workflows/release.yml@main
+    uses: BristolAI-com/CI-Components/.github/workflows/release.yml@main
     secrets: inherit
     with:
       app_name: my-app
@@ -120,17 +120,17 @@ Runs on push to main. Uses release-please to create releases and deploys to prod
 Each action can be used independently if you need custom workflows:
 
 ```yaml
-- uses: your-org/ci-cd-components/.github/actions/lint@main
+- uses: BristolAI-com/CI-Components/.github/actions/lint@main
   with:
     node_version: '20'
     working_directory: '.'
 
-- uses: your-org/ci-cd-components/.github/actions/test@main
+- uses: BristolAI-com/CI-Components/.github/actions/test@main
   with:
     test_type: 'e2e'
     base_url: 'https://my-app-preview.fly.dev'
 
-- uses: your-org/ci-cd-components/.github/actions/deploy@main
+- uses: BristolAI-com/CI-Components/.github/actions/deploy@main
   with:
     environment: stg
     app_name: my-app-staging
@@ -205,7 +205,7 @@ Extend the shared Renovate config in your repo's `renovate.json`:
 ```json
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>your-org/ci-cd-components"]
+  "extends": ["github>BristolAI-com/CI-Components"]
 }
 ```
 
@@ -230,13 +230,13 @@ jobs:
       - uses: actions/checkout@v4
 
       # Use shared lint
-      - uses: your-org/ci-cd-components/.github/actions/lint@main
+      - uses: BristolAI-com/CI-Components/.github/actions/lint@main
 
       # Custom build step
       - run: ./custom-build.sh
 
       # Use shared deploy
-      - uses: your-org/ci-cd-components/.github/actions/deploy@main
+      - uses: BristolAI-com/CI-Components/.github/actions/deploy@main
         with:
           environment: stg
           app_name: my-app-staging
@@ -252,7 +252,7 @@ All actions support a `working_directory` input for monorepos:
 ```yaml
 jobs:
   ci:
-    uses: your-org/ci-cd-components/.github/workflows/ci.yml@main
+    uses: BristolAI-com/CI-Components/.github/workflows/ci.yml@main
     secrets: inherit
     with:
       app_name: my-backend
