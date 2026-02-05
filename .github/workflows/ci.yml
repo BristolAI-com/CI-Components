@@ -1,0 +1,218 @@
+name: CI
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: 'App name (used for Fly app naming)'
+        required: true
+        type: string
+      fly_org:
+        description: 'Fly.io organization'
+        required: false
+        type: string
+        default: 'personal'
+      fly_region:
+        description: 'Fly.io region'
+        required: false
+        type: string
+        default: 'iad'
+      doppler_project:
+        description: 'Doppler project name (defaults to app_name)'
+        required: false
+        type: string
+        default: ''
+      node_version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '20'
+      skip_e2e:
+        description: 'Skip E2E tests'
+        required: false
+        type: boolean
+        default: false
+      runner:
+        description: 'Blacksmith runner to use'
+        required: false
+        type: string
+        default: 'blacksmith'
+
+jobs:
+  # ============================================
+  # Graphite CI Optimizer
+  # Determines if this PR should run full CI
+  # ============================================
+  graphite_ci:
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Graphite CI Optimizer
+        id: check
+        uses: withgraphite/graphite-ci-action@main
+        with:
+          graphite_token: ${{ secrets.GRAPHITE_CI_OPTIMIZER_TOKEN }}
+
+  # ============================================
+  # Lint - Always runs (fast, cheap)
+  # ============================================
+  lint:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: your-org/ci-cd-components/.github/actions/lint@main
+        with:
+          node_version: ${{ inputs.node_version }}
+
+  # ============================================
+  # Build - Skipped on mid-stack PRs
+  # ============================================
+  build:
+    needs: [graphite_ci, lint]
+    if: needs.graphite_ci.outputs.skip == 'false'
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: your-org/ci-cd-components/.github/actions/build@main
+        with:
+          node_version: ${{ inputs.node_version }}
+
+  # ============================================
+  # Scan - Skipped on mid-stack PRs
+  # ============================================
+  scan:
+    needs: [graphite_ci, build]
+    if: needs.graphite_ci.outputs.skip == 'false'
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: your-org/ci-cd-components/.github/actions/scan@main
+
+  # ============================================
+  # Test - Skipped on mid-stack PRs
+  # ============================================
+  test:
+    needs: [graphite_ci, build]
+    if: needs.graphite_ci.outputs.skip == 'false'
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: your-org/ci-cd-components/.github/actions/test@main
+        with:
+          node_version: ${{ inputs.node_version }}
+
+  # ============================================
+  # Deploy Preview - On PR (bottom/top of stack)
+  # ============================================
+  deploy_preview:
+    needs: [graphite_ci, test, scan]
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      needs.graphite_ci.outputs.skip == 'false'
+    runs-on: ${{ inputs.runner }}
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+    concurrency:
+      group: pr-${{ github.event.number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy Preview
+        id: deploy
+        uses: superfly/fly-pr-review-apps@1.2.1
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        with:
+          name: ${{ inputs.app_name }}-pr-${{ github.event.number }}
+          region: ${{ inputs.fly_region }}
+          org: ${{ inputs.fly_org }}
+          config: fly.preview.toml
+
+  # ============================================
+  # E2E Tests - Against preview deployment
+  # ============================================
+  e2e:
+    needs: [deploy_preview]
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      inputs.skip_e2e == false
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: your-org/ci-cd-components/.github/actions/test@main
+        with:
+          node_version: ${{ inputs.node_version }}
+          test_type: e2e
+          base_url: https://${{ inputs.app_name }}-pr-${{ github.event.number }}.fly.dev
+
+  # ============================================
+  # Cleanup Preview - On PR close
+  # ============================================
+  cleanup_preview:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cleanup Preview
+        uses: superfly/fly-pr-review-apps@1.2.1
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  # ============================================
+  # Deploy Dev - On push to develop
+  # ============================================
+  deploy_dev:
+    needs: [test, scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ${{ inputs.runner }}
+    environment:
+      name: dev
+      url: https://${{ inputs.app_name }}-dev.fly.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: your-org/ci-cd-components/.github/actions/deploy@main
+        with:
+          environment: dev
+          app_name: ${{ inputs.app_name }}-dev
+          config_file: fly.dev.toml
+          doppler_token: ${{ secrets.DOPPLER_TOKEN_DEV }}
+          doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
+          fly_api_token: ${{ secrets.FLY_API_TOKEN }}
+
+  # ============================================
+  # Deploy Staging - On push to main
+  # ============================================
+  deploy_staging:
+    needs: [test, scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ${{ inputs.runner }}
+    environment:
+      name: staging
+      url: https://${{ inputs.app_name }}-staging.fly.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: your-org/ci-cd-components/.github/actions/deploy@main
+        with:
+          environment: stg
+          app_name: ${{ inputs.app_name }}-staging
+          config_file: fly.staging.toml
+          doppler_token: ${{ secrets.DOPPLER_TOKEN_STG }}
+          doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
+          fly_api_token: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Smoke Test Staging
+        run: |
+          sleep 10
+          curl -sSf https://${{ inputs.app_name }}-staging.fly.dev/health || exit 1

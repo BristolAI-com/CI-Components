@@ -1,0 +1,123 @@
+name: 'Lint'
+description: 'Run linting checks for Python and/or TypeScript/Vue projects'
+
+inputs:
+  node_version:
+    description: 'Node.js version'
+    required: false
+    default: '20'
+  python_version:
+    description: 'Python version'
+    required: false
+    default: '3.12'
+  working_directory:
+    description: 'Working directory (for monorepos)'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    # ============================================
+    # Python Backend Linting
+    # ============================================
+    - name: Detect Python project
+      id: detect_python
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup Python with uv
+      if: steps.detect_python.outputs.found == 'true'
+      uses: astral-sh/setup-uv@v4
+
+    - name: Install Python dependencies
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: uv sync --dev
+
+    - name: Run Ruff (Python linter)
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: uv run ruff check .
+
+    - name: Run Ruff format check
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: uv run ruff format --check .
+
+    - name: Run mypy (Python type check)
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: uv run mypy . --ignore-missing-imports 2>/dev/null || true
+
+    # ============================================
+    # TypeScript/Vue Frontend Linting
+    # ============================================
+    - name: Detect Node.js project
+      id: detect_node
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "package.json" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup Node.js
+      if: steps.detect_node.outputs.found == 'true'
+      uses: useblacksmith/setup-node@v5
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: 'npm'
+        cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+    - name: Install Node.js dependencies
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm ci
+
+    - name: Run ESLint
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm run lint --if-present
+
+    - name: Run Prettier check
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm run format:check --if-present
+
+    - name: Run TypeScript check
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm run typecheck --if-present
+
+    - name: Run Vue type check
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm run type-check --if-present
+
+    # ============================================
+    # Shared Linting
+    # ============================================
+    - name: Lint Dockerfile
+      if: hashFiles(format('{0}/Dockerfile', inputs.working_directory)) != ''
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: ${{ inputs.working_directory }}/Dockerfile
+        failure-threshold: warning

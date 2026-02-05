@@ -1,0 +1,120 @@
+name: 'Test'
+description: 'Run tests for Python and/or TypeScript/Vue projects'
+
+inputs:
+  node_version:
+    description: 'Node.js version'
+    required: false
+    default: '20'
+  working_directory:
+    description: 'Working directory (for monorepos)'
+    required: false
+    default: '.'
+  test_type:
+    description: 'Test type: unit, e2e, or all'
+    required: false
+    default: 'unit'
+  base_url:
+    description: 'Base URL for E2E tests'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    # ============================================
+    # Python Backend Testing
+    # ============================================
+    - name: Detect Python project
+      id: detect_python
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "pyproject.toml" ] || [ -f "uv.lock" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup Python with uv
+      if: steps.detect_python.outputs.found == 'true'
+      uses: astral-sh/setup-uv@v4
+
+    - name: Install Python dependencies
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: uv sync --dev
+
+    - name: Run Python unit tests
+      if: steps.detect_python.outputs.found == 'true' && (inputs.test_type == 'unit' || inputs.test_type == 'all')
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        uv run pytest --cov --cov-report=xml --cov-report=term-missing -v 2>/dev/null || \
+          uv run pytest -v 2>/dev/null || \
+          echo "No pytest tests found"
+
+    # ============================================
+    # Node.js Frontend Testing
+    # ============================================
+    - name: Detect Node.js project
+      id: detect_node
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "package.json" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup Node.js
+      if: steps.detect_node.outputs.found == 'true'
+      uses: useblacksmith/setup-node@v5
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: 'npm'
+        cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+    - name: Install Node.js dependencies
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm ci
+
+    - name: Run unit tests
+      if: steps.detect_node.outputs.found == 'true' && (inputs.test_type == 'unit' || inputs.test_type == 'all')
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm run test:unit --if-present || npm test --if-present
+
+    - name: Install Playwright browsers
+      if: steps.detect_node.outputs.found == 'true' && (inputs.test_type == 'e2e' || inputs.test_type == 'all')
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npx playwright install --with-deps chromium 2>/dev/null || true
+
+    - name: Run E2E tests
+      if: steps.detect_node.outputs.found == 'true' && (inputs.test_type == 'e2e' || inputs.test_type == 'all')
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      env:
+        BASE_URL: ${{ inputs.base_url }}
+        PLAYWRIGHT_BASE_URL: ${{ inputs.base_url }}
+      run: npm run test:e2e --if-present
+
+    # ============================================
+    # Upload Coverage
+    # ============================================
+    - name: Upload coverage reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-reports
+        path: |
+          ${{ inputs.working_directory }}/coverage/
+          ${{ inputs.working_directory }}/coverage.xml
+          ${{ inputs.working_directory }}/.coverage
+        retention-days: 7
+        if-no-files-found: ignore

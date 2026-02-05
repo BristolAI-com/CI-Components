@@ -1,0 +1,85 @@
+name: 'Deploy'
+description: 'Deploy to Fly.io with Doppler secrets'
+
+inputs:
+  environment:
+    description: 'Environment: dev, stg, or prd'
+    required: true
+  app_name:
+    description: 'Fly.io app name'
+    required: true
+  config_file:
+    description: 'Fly.io config file (fly.toml)'
+    required: false
+    default: 'fly.toml'
+  doppler_token:
+    description: 'Doppler service token'
+    required: true
+  doppler_project:
+    description: 'Doppler project name'
+    required: true
+  fly_api_token:
+    description: 'Fly.io API token'
+    required: true
+  working_directory:
+    description: 'Working directory'
+    required: false
+    default: '.'
+
+outputs:
+  url:
+    description: 'Deployed app URL'
+    value: ${{ steps.deploy.outputs.url }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Fly CLI
+      uses: superfly/flyctl-actions/setup-flyctl@master
+
+    - name: Install Doppler CLI
+      shell: bash
+      run: |
+        curl -Ls https://cli.doppler.com/install.sh | sh
+
+    - name: Deploy to Fly.io with Doppler secrets
+      id: deploy
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      env:
+        FLY_API_TOKEN: ${{ inputs.fly_api_token }}
+        DOPPLER_TOKEN: ${{ inputs.doppler_token }}
+      run: |
+        # Fetch secrets from Doppler and set them in Fly
+        echo "Syncing secrets from Doppler to Fly.io..."
+        doppler secrets download \
+          --project "${{ inputs.doppler_project }}" \
+          --config "${{ inputs.environment }}" \
+          --no-file \
+          --format env \
+          | while IFS='=' read -r key value; do
+              if [ -n "$key" ]; then
+                flyctl secrets set "$key=$value" \
+                  --app "${{ inputs.app_name }}" \
+                  --stage 2>/dev/null || true
+              fi
+            done
+
+        # Deploy the app
+        echo "Deploying to Fly.io..."
+        flyctl deploy \
+          --app "${{ inputs.app_name }}" \
+          --config "${{ inputs.config_file }}" \
+          --remote-only \
+          --wait-timeout 300
+
+        # Output the URL
+        echo "url=https://${{ inputs.app_name }}.fly.dev" >> $GITHUB_OUTPUT
+
+    - name: Verify deployment
+      shell: bash
+      env:
+        FLY_API_TOKEN: ${{ inputs.fly_api_token }}
+      run: |
+        echo "Checking deployment status..."
+        flyctl status --app "${{ inputs.app_name }}"

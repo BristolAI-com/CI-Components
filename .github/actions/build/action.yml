@@ -1,0 +1,99 @@
+name: 'Build'
+description: 'Build Python and/or TypeScript/Vue applications'
+
+inputs:
+  node_version:
+    description: 'Node.js version'
+    required: false
+    default: '20'
+  python_version:
+    description: 'Python version'
+    required: false
+    default: '3.12'
+  working_directory:
+    description: 'Working directory (for monorepos)'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    # ============================================
+    # Python Backend Build
+    # ============================================
+    - name: Detect Python project
+      id: detect_python
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup Python with uv
+      if: steps.detect_python.outputs.found == 'true'
+      uses: astral-sh/setup-uv@v4
+
+    - name: Install Python dependencies
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: uv sync --dev
+
+    - name: Build Python package
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "pyproject.toml" ]; then
+          uv build
+        fi
+
+    # ============================================
+    # TypeScript/Vue Frontend Build
+    # ============================================
+    - name: Detect Node.js project
+      id: detect_node
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "package.json" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup Node.js
+      if: steps.detect_node.outputs.found == 'true'
+      uses: useblacksmith/setup-node@v5
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: 'npm'
+        cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+    - name: Install Node.js dependencies
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm ci
+
+    - name: Build frontend
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm run build --if-present
+
+    # ============================================
+    # Upload artifacts
+    # ============================================
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          ${{ inputs.working_directory }}/dist/
+          ${{ inputs.working_directory }}/build/
+        retention-days: 1
+        if-no-files-found: ignore

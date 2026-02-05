@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: 'App name'
+        required: true
+        type: string
+      fly_org:
+        description: 'Fly.io organization'
+        required: false
+        type: string
+        default: 'personal'
+      fly_region:
+        description: 'Fly.io region'
+        required: false
+        type: string
+        default: 'iad'
+      doppler_project:
+        description: 'Doppler project name (defaults to app_name)'
+        required: false
+        type: string
+        default: ''
+      runner:
+        description: 'Blacksmith runner to use'
+        required: false
+        type: string
+        default: 'blacksmith'
+
+jobs:
+  # ============================================
+  # Release - Create changelog and GitHub release
+  # ============================================
+  release:
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Release Please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+
+  # ============================================
+  # Deploy Production - On release created
+  # ============================================
+  deploy_production:
+    needs: [release]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ${{ inputs.runner }}
+    environment:
+      name: production
+      url: https://${{ inputs.app_name }}.fly.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: your-org/ci-cd-components/.github/actions/deploy@main
+        with:
+          environment: prd
+          app_name: ${{ inputs.app_name }}
+          config_file: fly.toml
+          doppler_token: ${{ secrets.DOPPLER_TOKEN_PRD }}
+          doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
+          fly_api_token: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Smoke Test Production
+        run: |
+          sleep 15
+          curl -sSf https://${{ inputs.app_name }}.fly.dev/health || exit 1
+
+      - name: Notify Release
+        if: success()
+        run: |
+          echo "🚀 Released ${{ needs.release.outputs.tag_name }} to production"
+          # Add Slack/Teams webhook notification here if desired

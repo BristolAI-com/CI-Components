@@ -1,0 +1,154 @@
+name: 'Scan'
+description: 'Security scanning for Python and TypeScript/Vue projects'
+
+inputs:
+  working_directory:
+    description: 'Working directory (for monorepos)'
+    required: false
+    default: '.'
+  upload_sarif:
+    description: 'Upload SARIF results to GitHub Security tab'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    # ============================================
+    # Secret Detection
+    # ============================================
+    - name: Gitleaks (secret detection)
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    # ============================================
+    # Python Security Scanning
+    # ============================================
+    - name: Detect Python project
+      id: detect_python
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "pyproject.toml" ] || [ -f "uv.lock" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup Python with uv
+      if: steps.detect_python.outputs.found == 'true'
+      uses: astral-sh/setup-uv@v4
+
+    - name: Install Python dependencies
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: uv sync --dev
+
+    - name: Python dependency audit (pip-audit via uv)
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        uv run pip-audit --desc on 2>/dev/null || uv add --dev pip-audit && uv run pip-audit --desc on || true
+
+    - name: Python SAST (Bandit)
+      if: steps.detect_python.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        uv run bandit -r . -f json -o bandit-results.json --exit-zero 2>/dev/null || \
+          (uv add --dev bandit && uv run bandit -r . -f json -o bandit-results.json --exit-zero)
+        uv run bandit -r . -f txt || true
+
+    # ============================================
+    # Node.js Security Scanning
+    # ============================================
+    - name: Detect Node.js project
+      id: detect_node
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "package.json" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup Node.js
+      if: steps.detect_node.outputs.found == 'true'
+      uses: useblacksmith/setup-node@v5
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+    - name: Install dependencies
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm ci
+
+    - name: npm audit
+      if: steps.detect_node.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: npm audit --audit-level=high || true
+
+    # ============================================
+    # Container Scanning (if Dockerfile exists)
+    # ============================================
+    - name: Detect Dockerfile
+      id: detect_docker
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "Dockerfile" ]; then
+          echo "found=true" >> $GITHUB_OUTPUT
+        else
+          echo "found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build image for scanning
+      if: steps.detect_docker.outputs.found == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: docker build -t scan-target:${{ github.sha }} .
+
+    - name: Trivy container scan
+      if: steps.detect_docker.outputs.found == 'true'
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: scan-target:${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Upload Trivy SARIF
+      if: steps.detect_docker.outputs.found == 'true' && inputs.upload_sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: trivy-results.sarif
+      continue-on-error: true
+
+    # ============================================
+    # Semgrep SAST (both Python and JS/TS)
+    # ============================================
+    - name: Semgrep SAST
+      uses: semgrep/semgrep-action@v1
+      with:
+        config: >-
+          p/default
+          p/python
+          p/typescript
+          p/vue
+        generateSarif: ${{ inputs.upload_sarif }}
+      continue-on-error: true
+
+    - name: Upload Semgrep SARIF
+      if: inputs.upload_sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: semgrep.sarif
+      continue-on-error: true

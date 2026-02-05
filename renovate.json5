@@ -1,0 +1,134 @@
+// Shared Renovate configuration for all repositories
+// Usage: In your repo's renovate.json, extend this config:
+// {
+//   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+//   "extends": ["github>your-org/ci-cd-components"]
+// }
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":automergeMinor",
+    ":automergeDigest",
+    ":automergeBranch",
+    ":maintainLockFilesWeekly",
+    "group:allNonMajor"
+  ],
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 10,
+
+  // Schedule updates for low-traffic times
+  "schedule": ["after 9pm on sunday", "before 5am on monday"],
+
+  // Automerge configuration
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": true,
+
+  // Require passing CI before automerge
+  "ignoreTests": false,
+
+  // Package rules
+  "packageRules": [
+    // Group all patch updates
+    {
+      "matchUpdateTypes": ["patch"],
+      "groupName": "patch updates",
+      "automerge": true
+    },
+
+    // Group all minor updates
+    {
+      "matchUpdateTypes": ["minor"],
+      "groupName": "minor updates",
+      "automerge": true
+    },
+
+    // Don't automerge major updates
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["dependencies", "major"]
+    },
+
+    // Python dependencies
+    {
+      "matchManagers": ["pip_requirements", "pip-compile", "poetry", "pep621"],
+      "groupName": "python dependencies"
+    },
+
+    // Node.js dependencies
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "npm dev dependencies"
+    },
+
+    // GitHub Actions
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "automerge": true
+    },
+
+    // Docker
+    {
+      "matchManagers": ["dockerfile"],
+      "groupName": "docker dependencies"
+    },
+
+    // Security updates - always prioritize
+    {
+      "matchDepTypes": ["devDependencies", "dependencies"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "matchPackagePatterns": ["*"],
+      "vulnerabilityAlerts": {
+        "labels": ["security"],
+        "automerge": true,
+        "schedule": ["at any time"]
+      }
+    },
+
+    // TypeScript and Vue
+    {
+      "matchPackagePatterns": ["^@types/", "typescript", "vue", "@vue/"],
+      "groupName": "typescript and vue"
+    },
+
+    // Testing frameworks
+    {
+      "matchPackagePatterns": ["vitest", "playwright", "pytest", "@playwright/"],
+      "groupName": "testing frameworks"
+    },
+
+    // Linting tools
+    {
+      "matchPackagePatterns": ["eslint", "prettier", "ruff", "mypy", "@eslint/"],
+      "groupName": "linting tools",
+      "automerge": true
+    }
+  ],
+
+  // Lock file maintenance
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on the first day of the month"]
+  },
+
+  // Vulnerability alerts - always enable
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  },
+
+  // Post-upgrade commands for uv
+  "postUpgradeTasks": {
+    "commands": [
+      "uv lock --upgrade-package {{{depName}}}"
+    ],
+    "fileFilters": ["uv.lock"],
+    "executionMode": "branch"
+  }
+}
