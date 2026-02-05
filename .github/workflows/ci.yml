@@ -37,6 +37,11 @@ on:
         required: false
         type: string
         default: 'blacksmith'
+      custom_domain:
+        description: 'Custom domain (e.g., core.bristol-ai.com) - skips smoke tests for internal apps'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   # ============================================
@@ -197,7 +202,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     environment:
       name: dev
-      url: https://${{ inputs.app_name }}-dev.fly.dev
+      url: ${{ inputs.custom_domain && format('https://{0}-dev.{1}', inputs.app_name, inputs.custom_domain) || format('https://{0}-dev.fly.dev', inputs.app_name) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -218,7 +223,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     environment:
       name: staging
-      url: https://${{ inputs.app_name }}-staging.fly.dev
+      url: ${{ inputs.custom_domain && format('https://{0}-staging.{1}', inputs.app_name, inputs.custom_domain) || format('https://{0}-staging.fly.dev', inputs.app_name) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -231,6 +236,7 @@ jobs:
           doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
 
       - name: Smoke Test Staging
+        if: inputs.custom_domain == ''
         run: |
           sleep 10
           curl -sSf https://${{ inputs.app_name }}-staging.fly.dev/health || exit 1
