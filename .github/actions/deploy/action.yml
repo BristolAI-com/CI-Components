@@ -37,7 +37,7 @@ runs:
     - name: Install Doppler CLI
       shell: bash
       run: |
-        curl -Ls https://cli.doppler.com/install.sh | sh
+        curl -Ls https://cli.doppler.com/install.sh | sudo sh
 
     - name: Deploy to Fly.io with Doppler secrets
       id: deploy
