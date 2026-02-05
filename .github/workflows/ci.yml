@@ -173,7 +173,7 @@ jobs:
   # ============================================
   deploy_dev:
     needs: [test, scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ${{ inputs.runner }}
     environment:
       name: dev

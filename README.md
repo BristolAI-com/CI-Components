@@ -15,7 +15,7 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, closed]
   push:
-    branches: [main, develop]
+    branches: [main, dev]
 
 jobs:
   ci:
@@ -184,7 +184,7 @@ The pipeline supports 4 environments:
 | Environment | Trigger | Fly App | Doppler Config |
 |-------------|---------|---------|----------------|
 | Preview | PR opened | `<app>-pr-<number>` | - |
-| Dev | Push to `develop` | `<app>-dev` | `dev` |
+| Dev | Push to `dev` | `<app>-dev` | `dev` |
 | Staging | Push to `main` | `<app>-staging` | `stg` |
 | Production | Release created | `<app>` | `prd` |
 
