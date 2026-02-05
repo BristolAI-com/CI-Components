@@ -66,7 +66,6 @@ jobs:
           config_file: fly.toml
           doppler_token: ${{ secrets.DOPPLER_TOKEN_PRD }}
           doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
-          fly_api_token: ${{ secrets.FLY_API_TOKEN }}
 
       - name: Smoke Test Production
         run: |

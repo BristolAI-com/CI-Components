@@ -81,7 +81,8 @@ All actions auto-detect project type and run appropriate tools:
 | `DOPPLER_TOKEN_DEV` | Doppler service token for dev environment |
 | `DOPPLER_TOKEN_STG` | Doppler service token for staging environment |
 | `DOPPLER_TOKEN_PRD` | Doppler service token for production environment |
-| `FLY_API_TOKEN` | Fly.io deploy token |
+
+**Note:** `FLY_API_TOKEN` is fetched from Doppler (store it in each environment config).
 
 ## Workflows
 
@@ -136,7 +137,6 @@ Each action can be used independently if you need custom workflows:
     app_name: my-app-staging
     doppler_token: ${{ secrets.DOPPLER_TOKEN_STG }}
     doppler_project: my-app
-    fly_api_token: ${{ secrets.FLY_API_TOKEN }}
 ```
 
 ### Action Inputs
@@ -175,7 +175,8 @@ Each action can be used independently if you need custom workflows:
 | `config_file` | No | Fly config file (default: `fly.toml`) |
 | `doppler_token` | Yes | Doppler service token |
 | `doppler_project` | Yes | Doppler project name |
-| `fly_api_token` | Yes | Fly.io API token |
+
+**Note:** `FLY_API_TOKEN` is fetched from Doppler automatically.
 
 ## Environments
 
@@ -242,7 +243,6 @@ jobs:
           app_name: my-app-staging
           doppler_token: ${{ secrets.DOPPLER_TOKEN_STG }}
           doppler_project: my-app
-          fly_api_token: ${{ secrets.FLY_API_TOKEN }}
 ```
 
 ### Monorepo support

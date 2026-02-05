@@ -18,9 +18,6 @@ inputs:
   doppler_project:
     description: 'Doppler project name'
     required: true
-  fly_api_token:
-    description: 'Fly.io API token'
-    required: true
   working_directory:
     description: 'Working directory'
     required: false
@@ -47,16 +44,21 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       env:
-        FLY_API_TOKEN: ${{ inputs.fly_api_token }}
         DOPPLER_TOKEN: ${{ inputs.doppler_token }}
       run: |
-        # Fetch secrets from Doppler and set them in Fly
+        # Get FLY_API_TOKEN from Doppler
+        export FLY_API_TOKEN=$(doppler secrets get FLY_API_TOKEN --plain \
+          --project "${{ inputs.doppler_project }}" \
+          --config "${{ inputs.environment }}")
+
+        # Fetch app secrets from Doppler and set them in Fly (excluding FLY_API_TOKEN)
         echo "Syncing secrets from Doppler to Fly.io..."
         doppler secrets download \
           --project "${{ inputs.doppler_project }}" \
           --config "${{ inputs.environment }}" \
           --no-file \
           --format env \
+          | grep -v "^FLY_API_TOKEN=" \
           | while IFS='=' read -r key value; do
               if [ -n "$key" ]; then
                 flyctl secrets set "$key=$value" \
@@ -79,7 +81,10 @@ runs:
     - name: Verify deployment
       shell: bash
       env:
-        FLY_API_TOKEN: ${{ inputs.fly_api_token }}
+        DOPPLER_TOKEN: ${{ inputs.doppler_token }}
       run: |
+        export FLY_API_TOKEN=$(doppler secrets get FLY_API_TOKEN --plain \
+          --project "${{ inputs.doppler_project }}" \
+          --config "${{ inputs.environment }}")
         echo "Checking deployment status..."
         flyctl status --app "${{ inputs.app_name }}"

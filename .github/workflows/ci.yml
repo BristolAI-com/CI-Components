@@ -124,11 +124,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Doppler CLI
+        run: curl -Ls https://cli.doppler.com/install.sh | sh
+
+      - name: Get Fly API Token
+        id: fly_token
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_DEV }}
+        run: |
+          echo "token=$(doppler secrets get FLY_API_TOKEN --plain --project ${{ inputs.doppler_project || inputs.app_name }} --config dev)" >> $GITHUB_OUTPUT
+
       - name: Deploy Preview
         id: deploy
         uses: superfly/fly-pr-review-apps@1.2.1
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
         with:
           name: ${{ inputs.app_name }}-pr-${{ github.event.number }}
           region: ${{ inputs.fly_region }}
@@ -163,10 +173,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Doppler CLI
+        run: curl -Ls https://cli.doppler.com/install.sh | sh
+
+      - name: Get Fly API Token
+        id: fly_token
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_DEV }}
+        run: |
+          echo "token=$(doppler secrets get FLY_API_TOKEN --plain --project ${{ inputs.doppler_project || inputs.app_name }} --config dev)" >> $GITHUB_OUTPUT
+
       - name: Cleanup Preview
         uses: superfly/fly-pr-review-apps@1.2.1
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
 
   # ============================================
   # Deploy Dev - On push to develop
@@ -188,7 +208,6 @@ jobs:
           config_file: fly.dev.toml
           doppler_token: ${{ secrets.DOPPLER_TOKEN_DEV }}
           doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
-          fly_api_token: ${{ secrets.FLY_API_TOKEN }}
 
   # ============================================
   # Deploy Staging - On push to main
@@ -210,7 +229,6 @@ jobs:
           config_file: fly.staging.toml
           doppler_token: ${{ secrets.DOPPLER_TOKEN_STG }}
           doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
-          fly_api_token: ${{ secrets.FLY_API_TOKEN }}
 
       - name: Smoke Test Staging
         run: |
