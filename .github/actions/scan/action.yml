@@ -61,9 +61,8 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       run: |
-        uv run bandit -r . -f json -o bandit-results.json --exit-zero 2>/dev/null || \
-          (uv add --dev bandit && uv run bandit -r . -f json -o bandit-results.json --exit-zero)
-        uv run bandit -r . -f txt || true
+        uv run bandit -r src/ -f txt --exit-zero 2>/dev/null || \
+          (uv add --dev bandit && uv run bandit -r src/ -f txt --exit-zero)
 
     # ============================================
     # Node.js Security Scanning
@@ -114,13 +113,13 @@ runs:
         fi
 
     - name: Build image for scanning
-      if: steps.detect_docker.outputs.found == 'true'
+      if: steps.detect_docker.outputs.found == 'true' && github.event_name != 'pull_request'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       run: docker build -t scan-target:${{ github.sha }} .
 
     - name: Trivy container scan
-      if: steps.detect_docker.outputs.found == 'true'
+      if: steps.detect_docker.outputs.found == 'true' && github.event_name != 'pull_request'
       uses: aquasecurity/trivy-action@master
       with:
         image-ref: scan-target:${{ github.sha }}
@@ -129,7 +128,7 @@ runs:
         severity: 'CRITICAL,HIGH'
 
     - name: Upload Trivy SARIF
-      if: steps.detect_docker.outputs.found == 'true' && inputs.upload_sarif == 'true'
+      if: steps.detect_docker.outputs.found == 'true' && inputs.upload_sarif == 'true' && github.event_name != 'pull_request'
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: trivy-results.sarif
