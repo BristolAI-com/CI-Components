@@ -38,7 +38,17 @@ on:
         type: string
         default: 'blacksmith'
       custom_domain:
-        description: 'Custom domain (e.g., core.bristol-ai.com) - skips smoke tests for internal apps'
+        description: 'Custom domain (e.g., core.bristol-ai.com) - uses flyctl health checks instead of curl'
+        required: false
+        type: string
+        default: ''
+      preview_label:
+        description: 'PR label required to trigger preview deploy (empty = auto-deploy)'
+        required: false
+        type: string
+        default: ''
+      frontend_directory:
+        description: 'Frontend subdirectory (e.g., frontend/) - runs Node.js CI separately for monorepos'
         required: false
         type: string
         default: ''
@@ -74,6 +84,23 @@ jobs:
           node_version: ${{ inputs.node_version }}
 
   # ============================================
+  # Lint Frontend - Runs when frontend_directory is set
+  # ============================================
+  lint_frontend:
+    needs: [graphite_ci]
+    if: |
+      needs.graphite_ci.outputs.skip == 'false' &&
+      inputs.frontend_directory != ''
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: BristolAI-com/CI-Components/.github/actions/lint@main
+        with:
+          node_version: ${{ inputs.node_version }}
+          working_directory: ${{ inputs.frontend_directory }}
+
+  # ============================================
   # Build - Skipped on mid-stack PRs
   # ============================================
   build:
@@ -88,6 +115,23 @@ jobs:
           node_version: ${{ inputs.node_version }}
 
   # ============================================
+  # Build Frontend - Runs when frontend_directory is set
+  # ============================================
+  build_frontend:
+    needs: [graphite_ci, lint_frontend]
+    if: |
+      needs.graphite_ci.outputs.skip == 'false' &&
+      inputs.frontend_directory != ''
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: BristolAI-com/CI-Components/.github/actions/build@main
+        with:
+          node_version: ${{ inputs.node_version }}
+          working_directory: ${{ inputs.frontend_directory }}
+
+  # ============================================
   # Scan - Skipped on mid-stack PRs
   # ============================================
   scan:
@@ -98,6 +142,22 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: BristolAI-com/CI-Components/.github/actions/scan@main
+
+  # ============================================
+  # Scan Frontend - Runs when frontend_directory is set
+  # ============================================
+  scan_frontend:
+    needs: [graphite_ci, build_frontend]
+    if: |
+      needs.graphite_ci.outputs.skip == 'false' &&
+      inputs.frontend_directory != ''
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: BristolAI-com/CI-Components/.github/actions/scan@main
+        with:
+          working_directory: ${{ inputs.frontend_directory }}
 
   # ============================================
   # Test - Skipped on mid-stack PRs
@@ -114,15 +174,33 @@ jobs:
           node_version: ${{ inputs.node_version }}
 
   # ============================================
-  # Deploy Preview - Manual trigger via environment approval
-  # Requires "preview" environment with required reviewers
+  # Test Frontend - Runs when frontend_directory is set
+  # ============================================
+  test_frontend:
+    needs: [graphite_ci, build_frontend]
+    if: |
+      needs.graphite_ci.outputs.skip == 'false' &&
+      inputs.frontend_directory != ''
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: BristolAI-com/CI-Components/.github/actions/test@main
+        with:
+          node_version: ${{ inputs.node_version }}
+          working_directory: ${{ inputs.frontend_directory }}
+
+  # ============================================
+  # Deploy Preview - Gated by preview_label when set
+  # Auto-deploys when preview_label is empty (default)
   # ============================================
   deploy_preview:
-    needs: [graphite_ci, test, scan]
+    needs: [graphite_ci, test, scan, test_frontend, scan_frontend]
     if: |
       github.event_name == 'pull_request' &&
       github.event.action != 'closed' &&
-      needs.graphite_ci.outputs.skip == 'false'
+      needs.graphite_ci.outputs.skip == 'false' &&
+      (inputs.preview_label == '' || contains(github.event.pull_request.labels.*.name, inputs.preview_label))
     runs-on: ${{ inputs.runner }}
     environment:
       name: preview
@@ -170,7 +248,7 @@ jobs:
 
       - name: Deploy Preview
         id: deploy
-        uses: superfly/fly-pr-review-apps@1.2.1
+        uses: superfly/fly-pr-review-apps@main
         env:
           FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
         with:
@@ -227,10 +305,87 @@ jobs:
           flyctl apps destroy ${{ inputs.app_name }}-pr-${{ github.event.number }} --yes || true
 
   # ============================================
+  # Preview via /preview comment
+  # Triggered when consuming repo includes issue_comment in its on: triggers
+  # ============================================
+  preview_comment:
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/preview')
+    runs-on: ${{ inputs.runner }}
+    environment:
+      name: preview
+      url: https://${{ inputs.app_name }}-pr-${{ github.event.issue.number }}.fly.dev
+    concurrency:
+      group: preview-pr-${{ github.event.issue.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.issue.number }}/head
+
+      - name: Set app name
+        id: app
+        run: echo "name=${{ inputs.app_name }}-pr-${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+
+      - name: Install Doppler CLI
+        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
+
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Get Fly API Token
+        id: fly_token
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_DEV }}
+        run: |
+          echo "token=$(doppler secrets get FLY_API_TOKEN --plain --project ${{ inputs.doppler_project || inputs.app_name }} --config dev)" >> $GITHUB_OUTPUT
+
+      - name: Sync Doppler secrets to preview app
+        id: sync_secrets
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_DEV }}
+        run: |
+          SECRETS=$(doppler secrets download \
+            --project "${{ inputs.doppler_project || inputs.app_name }}" \
+            --config dev \
+            --no-file \
+            --format env \
+            | grep -v "^FLY_API_TOKEN=" \
+            | tr '\n' ' ')
+          echo "secrets<<EOF" >> $GITHUB_OUTPUT
+          echo "$SECRETS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Deploy Preview
+        id: deploy
+        uses: superfly/fly-pr-review-apps@main
+        env:
+          FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
+        with:
+          name: ${{ steps.app.outputs.name }}
+          region: ${{ inputs.fly_region }}
+          org: ${{ inputs.fly_org }}
+          config: fly.preview.toml
+          secrets: ${{ steps.sync_secrets.outputs.secrets }}
+
+      - name: Comment preview URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.issue.number }},
+              body: `Preview deployed: https://${{ inputs.app_name }}-pr-${{ github.event.issue.number }}.fly.dev`
+            })
+
+  # ============================================
   # Deploy Dev - On push to develop
   # ============================================
   deploy_dev:
-    needs: [test, scan]
+    needs: [test, scan, test_frontend, scan_frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ${{ inputs.runner }}
     environment:
@@ -251,7 +406,7 @@ jobs:
   # Deploy Staging - On push to main
   # ============================================
   deploy_staging:
-    needs: [test, scan]
+    needs: [test, scan, test_frontend, scan_frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ${{ inputs.runner }}
     environment:
@@ -269,7 +424,18 @@ jobs:
           doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
 
       - name: Smoke Test Staging
-        if: inputs.custom_domain == ''
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_STG }}
         run: |
-          sleep 10
-          curl -sSf https://${{ inputs.app_name }}-staging.fly.dev/health || exit 1
+          export FLY_API_TOKEN=$(doppler secrets get FLY_API_TOKEN --plain \
+            --project "${{ inputs.doppler_project || inputs.app_name }}" --config stg)
+          echo "Verifying health checks for ${{ inputs.app_name }}-staging..."
+          sleep 5
+          CHECKS=$(flyctl checks list --app ${{ inputs.app_name }}-staging --json)
+          echo "$CHECKS" | jq .
+          FAILING=$(echo "$CHECKS" | jq '[.[] | select(.Status != "passing")] | length')
+          if [ "$FAILING" -gt 0 ]; then
+            echo "ERROR: $FAILING health check(s) not passing"
+            exit 1
+          fi
+          echo "All health checks passing"

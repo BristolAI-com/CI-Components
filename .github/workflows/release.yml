@@ -28,10 +28,15 @@ on:
         type: string
         default: 'blacksmith'
       custom_domain:
-        description: 'Custom domain (e.g., core.bristol-ai.com) - skips smoke tests for internal apps'
+        description: 'Custom domain (e.g., core.bristol-ai.com) - uses flyctl health checks instead of curl'
         required: false
         type: string
         default: ''
+      release_type:
+        description: 'Release-please release type (node, python, simple, etc.)'
+        required: false
+        type: string
+        default: 'node'
 
 jobs:
   # ============================================
@@ -49,7 +54,7 @@ jobs:
         id: release
         uses: googleapis/release-please-action@v4
         with:
-          release-type: node
+          release-type: ${{ inputs.release_type }}
 
   # ============================================
   # Deploy Production - On release created
@@ -73,10 +78,21 @@ jobs:
           doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
 
       - name: Smoke Test Production
-        if: inputs.custom_domain == ''
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_PRD }}
         run: |
-          sleep 15
-          curl -sSf https://${{ inputs.app_name }}.fly.dev/health || exit 1
+          export FLY_API_TOKEN=$(doppler secrets get FLY_API_TOKEN --plain \
+            --project "${{ inputs.doppler_project || inputs.app_name }}" --config prd)
+          echo "Verifying health checks for ${{ inputs.app_name }}..."
+          sleep 5
+          CHECKS=$(flyctl checks list --app ${{ inputs.app_name }} --json)
+          echo "$CHECKS" | jq .
+          FAILING=$(echo "$CHECKS" | jq '[.[] | select(.Status != "passing")] | length')
+          if [ "$FAILING" -gt 0 ]; then
+            echo "ERROR: $FAILING health check(s) not passing"
+            exit 1
+          fi
+          echo "All health checks passing"
 
       - name: Notify Release
         if: success()
