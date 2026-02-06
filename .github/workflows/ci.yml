@@ -60,9 +60,11 @@ jobs:
           graphite_token: ${{ secrets.GRAPHITE_CI_OPTIMIZER_TOKEN }}
 
   # ============================================
-  # Lint - Always runs (fast, cheap)
+  # Lint - Skipped on mid-stack PRs
   # ============================================
   lint:
+    needs: [graphite_ci]
+    if: needs.graphite_ci.outputs.skip == 'false'
     runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v4
