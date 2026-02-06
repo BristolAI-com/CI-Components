@@ -88,12 +88,24 @@ runs:
     # ============================================
     # Upload artifacts
     # ============================================
+    - name: Set artifact name
+      id: artifact_name
+      shell: bash
+      run: |
+        if [ "${{ inputs.working_directory }}" = "." ]; then
+          echo "name=build-artifacts" >> $GITHUB_OUTPUT
+        else
+          SUFFIX=$(echo "${{ inputs.working_directory }}" | tr '/' '-' | sed 's/-$//')
+          echo "name=build-artifacts-${SUFFIX}" >> $GITHUB_OUTPUT
+        fi
+
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: build-artifacts
+        name: ${{ steps.artifact_name.outputs.name }}
         path: |
           ${{ inputs.working_directory }}/dist/
           ${{ inputs.working_directory }}/build/
         retention-days: 1
         if-no-files-found: ignore
+        overwrite: true
