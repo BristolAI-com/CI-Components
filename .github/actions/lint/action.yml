@@ -58,7 +58,7 @@ runs:
       if: steps.detect_python.outputs.found == 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
-      run: uv run mypy . --ignore-missing-imports 2>/dev/null || true
+      run: uv run mypy . --ignore-missing-imports
 
     # ============================================
     # TypeScript/Vue Frontend Linting
