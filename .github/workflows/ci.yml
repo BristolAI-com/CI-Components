@@ -70,9 +70,9 @@ jobs:
           graphite_token: ${{ secrets.GRAPHITE_CI_OPTIMIZER_TOKEN }}
 
   # ============================================
-  # Lint - Skipped on mid-stack PRs
+  # Lint Backend - Skipped on mid-stack PRs
   # ============================================
-  lint:
+  lint_backend:
     needs: [graphite_ci]
     if: needs.graphite_ci.outputs.skip == 'false'
     runs-on: ${{ inputs.runner }}
@@ -101,10 +101,10 @@ jobs:
           working_directory: ${{ inputs.frontend_directory }}
 
   # ============================================
-  # Build - Skipped on mid-stack PRs
+  # Build Backend - Skipped on mid-stack PRs
   # ============================================
-  build:
-    needs: [graphite_ci, lint]
+  build_backend:
+    needs: [graphite_ci, lint_backend]
     if: needs.graphite_ci.outputs.skip == 'false'
     runs-on: ${{ inputs.runner }}
     steps:
@@ -132,10 +132,10 @@ jobs:
           working_directory: ${{ inputs.frontend_directory }}
 
   # ============================================
-  # Scan - Skipped on mid-stack PRs
+  # Scan Backend - Skipped on mid-stack PRs
   # ============================================
-  scan:
-    needs: [graphite_ci, build]
+  scan_backend:
+    needs: [graphite_ci, build_backend]
     if: needs.graphite_ci.outputs.skip == 'false'
     runs-on: ${{ inputs.runner }}
     steps:
@@ -160,10 +160,10 @@ jobs:
           working_directory: ${{ inputs.frontend_directory }}
 
   # ============================================
-  # Test - Skipped on mid-stack PRs
+  # Test Backend - Skipped on mid-stack PRs
   # ============================================
-  test:
-    needs: [graphite_ci, build]
+  test_backend:
+    needs: [graphite_ci, build_backend]
     if: needs.graphite_ci.outputs.skip == 'false'
     runs-on: ${{ inputs.runner }}
     steps:
@@ -195,7 +195,7 @@ jobs:
   # Auto-deploys when preview_label is empty (default)
   # ============================================
   deploy_preview:
-    needs: [graphite_ci, test, scan, test_frontend, scan_frontend]
+    needs: [graphite_ci, test_backend, scan_backend, test_frontend, scan_frontend]
     if: |
       github.event_name == 'pull_request' &&
       github.event.action != 'closed' &&
@@ -385,7 +385,7 @@ jobs:
   # Deploy Dev - On push to develop
   # ============================================
   deploy_dev:
-    needs: [test, scan, test_frontend, scan_frontend]
+    needs: [test_backend, scan_backend, test_frontend, scan_frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ${{ inputs.runner }}
     environment:
@@ -406,7 +406,7 @@ jobs:
   # Deploy Staging - On push to main
   # ============================================
   deploy_staging:
-    needs: [test, scan, test_frontend, scan_frontend]
+    needs: [test_backend, scan_backend, test_frontend, scan_frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ${{ inputs.runner }}
     environment:
