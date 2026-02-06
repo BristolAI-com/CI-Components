@@ -139,6 +139,24 @@ jobs:
         run: |
           echo "token=$(doppler secrets get FLY_API_TOKEN --plain --project ${{ inputs.doppler_project || inputs.app_name }} --config dev)" >> $GITHUB_OUTPUT
 
+      - name: Sync Doppler secrets to preview app
+        id: sync_secrets
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_DEV }}
+          FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
+        run: |
+          # Download secrets from Doppler (dev config) and format for fly-pr-review-apps
+          SECRETS=$(doppler secrets download \
+            --project "${{ inputs.doppler_project || inputs.app_name }}" \
+            --config dev \
+            --no-file \
+            --format env \
+            | grep -v "^FLY_API_TOKEN=" \
+            | tr '\n' ' ')
+          echo "secrets<<EOF" >> $GITHUB_OUTPUT
+          echo "$SECRETS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Deploy Preview
         id: deploy
         uses: superfly/fly-pr-review-apps@1.2.1
@@ -149,7 +167,7 @@ jobs:
           region: ${{ inputs.fly_region }}
           org: ${{ inputs.fly_org }}
           config: fly.preview.toml
-          secrets: DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN_DEV }} DOPPLER_PROJECT=${{ inputs.doppler_project || inputs.app_name }} DOPPLER_CONFIG=dev
+          secrets: ${{ steps.sync_secrets.outputs.secrets }}
 
   # ============================================
   # E2E Tests - Against preview deployment

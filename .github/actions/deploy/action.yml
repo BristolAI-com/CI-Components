@@ -1,5 +1,5 @@
 name: 'Deploy'
-description: 'Deploy to Fly.io with Doppler secrets'
+description: 'Deploy to Fly.io (secrets synced via Doppler integration)'
 
 inputs:
   environment:
@@ -39,7 +39,7 @@ runs:
       run: |
         curl -Ls https://cli.doppler.com/install.sh | sudo sh
 
-    - name: Deploy to Fly.io with Doppler secrets
+    - name: Deploy to Fly.io
       id: deploy
       shell: bash
       working-directory: ${{ inputs.working_directory }}
@@ -51,22 +51,7 @@ runs:
           --project "${{ inputs.doppler_project }}" \
           --config "${{ inputs.environment }}")
 
-        # Fetch app secrets from Doppler and set them in Fly (excluding FLY_API_TOKEN)
-        echo "Syncing secrets from Doppler to Fly.io..."
-        doppler secrets download \
-          --project "${{ inputs.doppler_project }}" \
-          --config "${{ inputs.environment }}" \
-          --no-file \
-          --format env \
-          | grep -v "^FLY_API_TOKEN=" \
-          | while IFS='=' read -r key value; do
-              if [ -n "$key" ]; then
-                flyctl secrets set "$key=$value" \
-                  --app "${{ inputs.app_name }}" \
-                  --stage 2>/dev/null || true
-              fi
-            done
-
+        # Secrets are synced via the Doppler-Fly.io integration
         # Deploy the app
         echo "Deploying to Fly.io..."
         flyctl deploy \
