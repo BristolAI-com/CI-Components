@@ -112,7 +112,8 @@ jobs:
           node_version: ${{ inputs.node_version }}
 
   # ============================================
-  # Deploy Preview - On PR (bottom/top of stack)
+  # Deploy Preview - Manual trigger via environment approval
+  # Requires "preview" environment with required reviewers
   # ============================================
   deploy_preview:
     needs: [graphite_ci, test, scan]
@@ -125,12 +126,22 @@ jobs:
       name: preview
       url: ${{ steps.deploy.outputs.url }}
     concurrency:
-      group: pr-${{ github.event.number }}
+      group: preview-pr-${{ github.event.number }}
+      cancel-in-progress: true
+    outputs:
+      app_name: ${{ steps.app.outputs.name }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set app name
+        id: app
+        run: echo "name=${{ inputs.app_name }}-pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
+
       - name: Install Doppler CLI
         run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
+
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Get Fly API Token
         id: fly_token
@@ -143,9 +154,7 @@ jobs:
         id: sync_secrets
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_DEV }}
-          FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
         run: |
-          # Download secrets from Doppler (dev config) and format for fly-pr-review-apps
           SECRETS=$(doppler secrets download \
             --project "${{ inputs.doppler_project || inputs.app_name }}" \
             --config dev \
@@ -163,7 +172,7 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
         with:
-          name: ${{ inputs.app_name }}-pr-${{ github.event.number }}
+          name: ${{ steps.app.outputs.name }}
           region: ${{ inputs.fly_region }}
           org: ${{ inputs.fly_org }}
           config: fly.preview.toml
@@ -189,16 +198,50 @@ jobs:
           base_url: https://${{ inputs.app_name }}-pr-${{ github.event.number }}.fly.dev
 
   # ============================================
-  # Cleanup Preview - On PR close
+  # Cleanup Preview - Auto-destroy after 15 min TTL
+  # ============================================
+  cleanup_preview_timer:
+    needs: [deploy_preview]
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Doppler CLI
+        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
+
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Get Fly API Token
+        id: fly_token
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_DEV }}
+        run: |
+          echo "token=$(doppler secrets get FLY_API_TOKEN --plain --project ${{ inputs.doppler_project || inputs.app_name }} --config dev)" >> $GITHUB_OUTPUT
+
+      - name: Wait 15 minutes then destroy preview
+        env:
+          FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
+        run: |
+          echo "Preview deployed at https://${{ needs.deploy_preview.outputs.app_name }}.fly.dev"
+          echo "Auto-destroying in 15 minutes..."
+          sleep 900
+          echo "TTL expired. Destroying preview app..."
+          flyctl apps destroy ${{ needs.deploy_preview.outputs.app_name }} --yes || true
+
+  # ============================================
+  # Cleanup Preview - On PR close (safety net)
   # ============================================
   cleanup_preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install Doppler CLI
         run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
+
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Get Fly API Token
         id: fly_token
@@ -208,9 +251,10 @@ jobs:
           echo "token=$(doppler secrets get FLY_API_TOKEN --plain --project ${{ inputs.doppler_project || inputs.app_name }} --config dev)" >> $GITHUB_OUTPUT
 
       - name: Cleanup Preview
-        uses: superfly/fly-pr-review-apps@1.2.1
         env:
           FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
+        run: |
+          flyctl apps destroy ${{ inputs.app_name }}-pr-${{ github.event.number }} --yes || true
 
   # ============================================
   # Deploy Dev - On push to develop
