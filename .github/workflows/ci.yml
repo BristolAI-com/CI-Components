@@ -198,40 +198,8 @@ jobs:
           base_url: https://${{ inputs.app_name }}-pr-${{ github.event.number }}.fly.dev
 
   # ============================================
-  # Cleanup Preview - Auto-destroy after 15 min TTL
-  # ============================================
-  cleanup_preview_timer:
-    needs: [deploy_preview]
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.action != 'closed'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install Doppler CLI
-        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
-
-      - name: Setup Fly CLI
-        uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Get Fly API Token
-        id: fly_token
-        env:
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_DEV }}
-        run: |
-          echo "token=$(doppler secrets get FLY_API_TOKEN --plain --project ${{ inputs.doppler_project || inputs.app_name }} --config dev)" >> $GITHUB_OUTPUT
-
-      - name: Wait 15 minutes then destroy preview
-        env:
-          FLY_API_TOKEN: ${{ steps.fly_token.outputs.token }}
-        run: |
-          echo "Preview deployed at https://${{ needs.deploy_preview.outputs.app_name }}.fly.dev"
-          echo "Auto-destroying in 15 minutes..."
-          sleep 900
-          echo "TTL expired. Destroying preview app..."
-          flyctl apps destroy ${{ needs.deploy_preview.outputs.app_name }} --yes || true
-
-  # ============================================
-  # Cleanup Preview - On PR close (safety net)
+  # Cleanup Preview - On PR close
+  # Preview machines auto-suspend when idle (auto_stop_machines=suspend)
   # ============================================
   cleanup_preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
