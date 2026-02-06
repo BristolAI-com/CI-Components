@@ -61,9 +61,10 @@ jobs:
   graphite_ci:
     runs-on: ${{ inputs.runner }}
     outputs:
-      skip: ${{ steps.check.outputs.skip }}
+      skip: ${{ steps.check.outputs.skip || 'false' }}
     steps:
       - name: Graphite CI Optimizer
+        if: github.event_name == 'pull_request'
         id: check
         uses: withgraphite/graphite-ci-action@main
         with:
