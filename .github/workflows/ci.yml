@@ -149,6 +149,7 @@ jobs:
           region: ${{ inputs.fly_region }}
           org: ${{ inputs.fly_org }}
           config: fly.preview.toml
+          secrets: DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN_DEV }} DOPPLER_PROJECT=${{ inputs.doppler_project || inputs.app_name }} DOPPLER_CONFIG=dev
 
   # ============================================
   # E2E Tests - Against preview deployment
