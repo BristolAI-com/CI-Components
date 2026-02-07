@@ -66,8 +66,13 @@ jobs:
   graphite_ci:
     runs-on: ${{ inputs.runner }}
     outputs:
-      skip: ${{ steps.check.outputs.skip || 'false' }}
+      skip: ${{ steps.comment_skip.outputs.skip || steps.check.outputs.skip || 'false' }}
     steps:
+      - name: Skip CI for issue_comment events
+        if: github.event_name == 'issue_comment'
+        id: comment_skip
+        run: echo "skip=true" >> $GITHUB_OUTPUT
+
       - name: Graphite CI Optimizer
         if: github.event_name == 'pull_request'
         id: check
