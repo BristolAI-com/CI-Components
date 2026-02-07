@@ -52,6 +52,11 @@ on:
         required: false
         type: string
         default: ''
+      staging_app_name:
+        description: 'Override Fly app name for staging (defaults to {app_name}-staging)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   # ============================================
@@ -419,7 +424,7 @@ jobs:
       - uses: BristolAI-com/CI-Components/.github/actions/deploy@main
         with:
           environment: stg
-          app_name: ${{ inputs.app_name }}-staging
+          app_name: ${{ inputs.staging_app_name || format('{0}-staging', inputs.app_name) }}
           config_file: fly.staging.toml
           doppler_token: ${{ secrets.DOPPLER_TOKEN_STG }}
           doppler_project: ${{ inputs.doppler_project || inputs.app_name }}
@@ -428,11 +433,12 @@ jobs:
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_STG }}
         run: |
+          STAGING_APP="${{ inputs.staging_app_name || format('{0}-staging', inputs.app_name) }}"
           export FLY_API_TOKEN=$(doppler secrets get FLY_API_TOKEN --plain \
             --project "${{ inputs.doppler_project || inputs.app_name }}" --config stg)
-          echo "Verifying health checks for ${{ inputs.app_name }}-staging..."
+          echo "Verifying health checks for $STAGING_APP..."
           sleep 5
-          CHECKS=$(flyctl checks list --app ${{ inputs.app_name }}-staging --json)
+          CHECKS=$(flyctl checks list --app "$STAGING_APP" --json)
           echo "$CHECKS" | jq .
           FAILING=$(echo "$CHECKS" | jq '[.[] | select(.Status != "passing")] | length')
           if [ "$FAILING" -gt 0 ]; then
