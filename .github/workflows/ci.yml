@@ -364,6 +364,13 @@ jobs:
           echo "$SECRETS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      - name: Patch event for fly-pr-review-apps compatibility
+        run: |
+          # fly-pr-review-apps reads .number from event.json, but
+          # issue_comment events store it at .issue.number
+          jq '.number = .issue.number' "$GITHUB_EVENT_PATH" > /tmp/patched.json
+          mv /tmp/patched.json "$GITHUB_EVENT_PATH"
+
       - name: Deploy Preview
         id: deploy
         uses: superfly/fly-pr-review-apps@main
