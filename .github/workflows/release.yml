@@ -87,7 +87,7 @@ jobs:
           sleep 5
           CHECKS=$(flyctl checks list --app ${{ inputs.app_name }} --json)
           echo "$CHECKS" | jq .
-          FAILING=$(echo "$CHECKS" | jq '[.[] | select(.Status != "passing")] | length')
+          FAILING=$(echo "$CHECKS" | jq '[.[][] | select(.status != "passing")] | length')
           if [ "$FAILING" -gt 0 ]; then
             echo "ERROR: $FAILING health check(s) not passing"
             exit 1
