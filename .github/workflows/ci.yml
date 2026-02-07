@@ -44,7 +44,7 @@ on:
         type: string
         default: 'blacksmith'
       custom_domain:
-        description: 'Custom domain (e.g., core.bristol-ai.com) - uses flyctl health checks instead of curl'
+        description: 'Custom domain (e.g., app.example.com) - uses flyctl health checks instead of curl'
         required: false
         type: string
         default: ''
