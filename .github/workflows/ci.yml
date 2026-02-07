@@ -1,5 +1,11 @@
 name: CI
 
+# Callers must grant these permissions for preview comment posting:
+#   permissions:
+#     contents: read
+#     issues: write
+#     pull-requests: write
+
 on:
   workflow_call:
     inputs:
